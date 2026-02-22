@@ -115,26 +115,27 @@ def fetch_stooq_prices(symbol: str) -> pd.DataFrame:
 # -------------------------
 def get_cik_for_ticker(ticker: str) -> str:
     """
-    Use SEC's company tickers exchange file to map ticker -> CIK.
+    Map ticker -> CIK using SEC's company_tickers.json.
+
+    This file is a dict keyed by integers-as-strings, e.g.:
+      {"0": {"cik_str": 320193, "ticker": "AAPL", "title": "APPLE INC"}, ...}
+
     Returns a zero-padded 10-digit CIK string.
     """
-    url = "https://www.sec.gov/files/company_tickers_exchange.json"
+    url = "https://www.sec.gov/files/company_tickers.json"
     r = requests.get(url, headers=SEC_HEADERS, timeout=60)
     r.raise_for_status()
     js = r.json()
 
     t = ticker.upper()
-    # Format differs slightly across SEC JSONs; this one is a list of dicts.
-    # We'll support both list and dict forms defensively.
-    rows = js if isinstance(js, list) else js.values()
 
-    for row in rows:
+    # js is dict-of-dicts
+    for _, row in js.items():
         if str(row.get("ticker", "")).upper() == t:
-            cik_int = int(row.get("cik"))
+            cik_int = int(row["cik_str"])
             return f"{cik_int:010d}"
 
     raise RuntimeError(f"Could not find CIK for ticker {ticker} via SEC mapping")
-
 
 # -------------------------
 # SEC: Shares outstanding series
