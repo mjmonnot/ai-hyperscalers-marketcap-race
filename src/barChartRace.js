@@ -1,22 +1,17 @@
 // src/barChartRace.js
-// D3 Bar Chart Race (monthly frames) for data/processed/marketcap_monthly.csv
-//
-// Expected CSV columns:
-//   date (YYYY-MM-DD), name, value, category
-//
-// Usage (already in index.html):
-//   import { renderBarChartRace } from "./src/barChartRace.js";
-//   renderBarChartRace({ el: ..., dataUrl: "...", n: 10, duration: 250, metricLabel: "Market Cap ($B)" });
+// D3 Bar Chart Race over time (monthly data), with optional windowing + status callback.
 
 export async function renderBarChartRace({
   el,
   dataUrl,
-  n = 10,               // number of bars shown
-  duration = 300,       // ms per frame
-  k = 6,                // interpolation steps between months (smoothness)
-  metricLabel = "Value"
+  n = 10,
+  duration = 120,
+  k = 2,
+  windowYears = 0,             // 0 = full history; else last N years
+  metricLabel = "Value",
+  onFrame = null               // function(dateString) called each frame
 } = {}) {
-  // ---- Load + normalize data ----
+
   const raw = await d3.csv(dataUrl, d3.autoType);
 
   const data = raw
@@ -29,16 +24,16 @@ export async function renderBarChartRace({
     .filter(d => d.date instanceof Date && !Number.isNaN(+d.date) && Number.isFinite(d.value))
     .sort((a, b) => d3.ascending(a.date, b.date));
 
-  // Category color palette
+  if (data.length === 0) throw new Error("No data loaded from CSV.");
+
   const categories = Array.from(new Set(data.map(d => d.category)));
   const color = d3.scaleOrdinal(categories, d3.schemeTableau10);
 
-  // ---- Helpers ----
   const formatNumber = d3.format(",.0f");
   const formatDate = d3.utcFormat("%Y-%m");
 
   // Build (date -> Map(name -> value))
-  const dateValues = Array.from(
+  let dateValues = Array.from(
     d3.rollup(
       data,
       v => d3.rollup(v, ([d]) => d.value, d => d.name),
@@ -47,7 +42,13 @@ export async function renderBarChartRace({
     ([date, values]) => [new Date(date), values]
   ).sort((a, b) => d3.ascending(a[0], b[0]));
 
-  // Rank function (top-n with rank index for y positioning)
+  // Optionally limit to last N years (makes race visibly active quickly)
+  if (windowYears && windowYears > 0) {
+    const last = dateValues[dateValues.length - 1][0];
+    const cutoff = new Date(Date.UTC(last.getUTCFullYear() - windowYears, last.getUTCMonth(), 1));
+    dateValues = dateValues.filter(([d]) => d >= cutoff);
+  }
+
   function rank(valueByName) {
     const arr = Array.from(valueByName, ([name, value]) => ({ name, value }));
     arr.sort((a, b) => d3.descending(a.value, b.value));
@@ -55,8 +56,7 @@ export async function renderBarChartRace({
     return arr;
   }
 
-  // Interpolate between adjacent months for smooth animation
-  function keyframes(dateValues, k) {
+  function buildKeyframes(dateValues, k) {
     const frames = [];
     for (let i = 0; i < dateValues.length - 1; ++i) {
       const [dateA, valuesA] = dateValues[i];
@@ -73,32 +73,27 @@ export async function renderBarChartRace({
         frames.push([new Date(dateA * (1 - t) + dateB * t), rank(values)]);
       }
     }
-    // last frame
     const [lastDate, lastValues] = dateValues[dateValues.length - 1];
     frames.push([lastDate, rank(lastValues)]);
     return frames;
   }
 
-  const frames = keyframes(dateValues, k);
+  const frames = buildKeyframes(dateValues, Math.max(1, k));
 
-  // For smooth enter/exit transitions, track prev/next rank/value per name
-  const names = Array.from(new Set(data.map(d => d.name)));
-  const nameFrames = new Map(names.map(name => [name, []]));
-  for (const [date, ranked] of frames) {
-    for (const d of ranked) nameFrames.get(d.name).push({ ...d, date });
-  }
+  // Maps for smooth enter/exit
+  const byName = d3.group(frames.flatMap(([, d]) => d), d => d.name);
 
   const prev = new Map();
   const next = new Map();
-  for (const [, arr] of nameFrames) {
+  for (const [, arr] of byName) {
     for (let i = 1; i < arr.length; i++) prev.set(arr[i], arr[i - 1]);
     for (let i = 0; i < arr.length - 1; i++) next.set(arr[i], arr[i + 1]);
   }
 
-  // ---- Layout ----
+  // Layout
   const width = 1000;
   const barSize = 42;
-  const margin = { top: 20, right: 40, bottom: 20, left: 20 };
+  const margin = { top: 24, right: 40, bottom: 18, left: 20 };
   const height = margin.top + barSize * n + margin.bottom;
 
   const x = d3.scaleLinear([0, 1], [margin.left, width - margin.right]);
@@ -107,7 +102,7 @@ export async function renderBarChartRace({
     .rangeRound([margin.top, margin.top + barSize * (n + 1)])
     .padding(0.1);
 
-  // Clear container and render SVG
+  // Render
   el.innerHTML = "";
   const svg = d3.select(el)
     .append("svg")
@@ -115,32 +110,27 @@ export async function renderBarChartRace({
     .style("width", "100%")
     .style("height", "auto");
 
-  // Axis layer
   const axisG = svg.append("g").attr("transform", `translate(0,${margin.top})`);
-
-  // Bars + labels layer
   const barsG = svg.append("g");
   const labelsG = svg.append("g").attr("font-size", 12).attr("font-weight", 500);
 
-  // Ticker (date) in top-right
   const ticker = svg.append("text")
     .attr("x", width - margin.right)
-    .attr("y", margin.top + 8)
+    .attr("y", margin.top + 6)
     .attr("text-anchor", "end")
     .attr("font-size", 28)
     .attr("font-weight", 700)
     .attr("dy", "0.35em");
 
-  // Metric label
   svg.append("text")
     .attr("x", width - margin.right)
-    .attr("y", margin.top - 6)
+    .attr("y", margin.top - 10)
     .attr("text-anchor", "end")
     .attr("font-size", 12)
     .attr("fill", "#555")
     .text(metricLabel);
 
-  function updateAxis([, ranked], transition) {
+  function updateAxis([, ranked]) {
     x.domain([0, ranked[0]?.value ?? 1]).nice();
 
     const ticks = x.ticks(width / 160);
@@ -150,21 +140,16 @@ export async function renderBarChartRace({
 
     const tickEnter = tick.enter().append("g").attr("class", "tick");
     tickEnter.append("line").attr("stroke", "#eee");
-    tickEnter.append("text").attr("fill", "#777").attr("font-size", 11).attr("text-anchor", "middle").attr("y", -6);
+    tickEnter.append("text")
+      .attr("fill", "#777")
+      .attr("font-size", 11)
+      .attr("text-anchor", "middle")
+      .attr("y", -6);
 
     const tickMerge = tickEnter.merge(tick);
-
-    tickMerge
-      .attr("transform", d => `translate(${x(d)},0)`);
-
-    tickMerge.select("line")
-      .attr("y1", 0)
-      .attr("y2", height - margin.top - margin.bottom);
-
-    tickMerge.select("text")
-      .text(d3.format(",")(d));
-
-    axisG.selectAll(".domain").remove();
+    tickMerge.attr("transform", d => `translate(${x(d)},0)`);
+    tickMerge.select("line").attr("y1", 0).attr("y2", height - margin.top - margin.bottom);
+    tickMerge.select("text").text(d3.format(",")(d));
   }
 
   function updateBars([, ranked], transition) {
@@ -200,21 +185,21 @@ export async function renderBarChartRace({
       .attr("transform", d => `translate(${x((next.get(d) || d).value)},${y((next.get(d) || d).rank)})`)
       .remove();
 
-    const labelEnter = label.enter().append("text")
+    const enter = label.enter().append("text")
       .attr("class", "label")
       .attr("transform", d => `translate(${x((prev.get(d) || d).value)},${y((prev.get(d) || d).rank)})`)
       .attr("y", y.bandwidth() / 2)
       .attr("x", 6)
       .attr("dy", "0.35em");
 
-    labelEnter.append("tspan").attr("class", "name").text(d => d.name);
-    labelEnter.append("tspan")
+    enter.append("tspan").attr("class", "name").text(d => d.name);
+    enter.append("tspan")
       .attr("class", "value")
       .attr("fill", "#666")
       .attr("font-weight", 400)
       .attr("dx", "0.8em");
 
-    labelEnter.merge(label)
+    enter.merge(label)
       .transition(transition)
       .attr("transform", d => `translate(${x(d.value)},${y(d.rank)})`)
       .select("tspan.value")
@@ -222,20 +207,19 @@ export async function renderBarChartRace({
         const a = (prev.get(d) || d).value;
         const b = d.value;
         const i = d3.interpolateNumber(a, b);
-        return function(t) {
-          this.textContent = formatNumber(i(t));
-        };
+        return function(t) { this.textContent = formatNumber(i(t)); };
       });
   }
 
-  // ---- Animate ----
+  // Animate
   for (const frame of frames) {
     const [date] = frame;
+    if (typeof onFrame === "function") onFrame(formatDate(date));
+
     const transition = svg.transition().duration(duration).ease(d3.easeLinear);
 
     ticker.text(formatDate(date));
-
-    updateAxis(frame, transition);
+    updateAxis(frame);
     updateBars(frame, transition);
     updateLabels(frame, transition);
 
