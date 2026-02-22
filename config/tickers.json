@@ -1,0 +1,15 @@
+{
+  "universe_name": "AI hyperscalers + AI infra proxy",
+  "tickers": [
+    {"ticker": "MSFT", "name": "Microsoft", "category": "Hyperscaler"},
+    {"ticker": "AMZN", "name": "Amazon", "category": "Hyperscaler"},
+    {"ticker": "GOOGL", "name": "Alphabet", "category": "Hyperscaler"},
+    {"ticker": "META", "name": "Meta", "category": "AI Platform"},
+    {"ticker": "ORCL", "name": "Oracle", "category": "Cloud"},
+    {"ticker": "IBM",  "name": "IBM", "category": "Cloud"},
+    {"ticker": "NVDA", "name": "NVIDIA", "category": "AI Infra"},
+    {"ticker": "TSM",  "name": "TSMC", "category": "AI Infra"},
+    {"ticker": "AVGO", "name": "Broadcom", "category": "AI Infra"},
+    {"ticker": "AMD",  "name": "AMD", "category": "AI Infra"}
+  ]
+}

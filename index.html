@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>AI Hyperscalers Market Cap Race</title>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+</head>
+<body>
+<h2>AI Hyperscalers — Market Cap (Monthly, $B)</h2>
+<div id="chart"></div>
+<script type="module">
+import { renderBarChartRace } from "./src/barChartRace.js";
+renderBarChartRace({
+  el: document.querySelector("#chart"),
+  dataUrl: "./data/processed/marketcap_monthly.csv",
+  metricLabel: "Market Cap ($B)"
+});
+</script>
+</body>
+</html>
