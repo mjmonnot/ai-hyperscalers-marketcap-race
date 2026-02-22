@@ -54,9 +54,11 @@ export async function createBarChartRace({
   const width = 1000;
   const barSize = 42;
 
-  // Dedicated header band so date never overlaps plot area
-  const headerHeight = 34; // space above plot
-  const margin = { top: headerHeight + 14, right: 46, bottom: 18, left: 20 };
+  // Larger header band for breathing room
+  const headerHeight = 52;
+
+  // Chart margin-top includes header band + padding so labels never collide
+  const margin = { top: headerHeight + 22, right: 46, bottom: 18, left: 20 };
   let height = margin.top + barSize * state.n + margin.bottom;
 
   el.innerHTML = "";
@@ -66,11 +68,10 @@ export async function createBarChartRace({
     .style("width", "100%")
     .style("height", "auto");
 
-  // Header group (separate from chart area)
-  const headerG = svg.append("g")
-    .attr("transform", `translate(0,0)`);
+  // Header group
+  const headerG = svg.append("g");
 
-  // A subtle divider line between header and chart
+  // Divider line between header + chart (subtle)
   headerG.append("line")
     .attr("x1", margin.left)
     .attr("x2", width - margin.right)
@@ -78,23 +79,23 @@ export async function createBarChartRace({
     .attr("y2", headerHeight)
     .attr("stroke", "#eaeaea");
 
-  // Metric label in header (right aligned, small)
+  // Metric label (top-right, small)
   headerG.append("text")
     .attr("x", width - margin.right)
-    .attr("y", 14)
+    .attr("y", 16)
     .attr("text-anchor", "end")
     .attr("font-size", 12)
     .attr("fill", "#555")
     .text(metricLabel);
 
-  // Large date in header band (right aligned), positioned so it never collides with axis/bars
+  // Date ticker (top-right, larger, with comfortable separation)
   const ticker = headerG.append("text")
     .attr("x", width - margin.right)
-    .attr("y", headerHeight - 8)
+    .attr("y", 42)
     .attr("text-anchor", "end")
-    .attr("font-size", 26)     // slightly smaller than before
-    .attr("font-weight", 750)
-    .attr("dy", "0.35em");
+    .attr("font-size", 28)
+    .attr("font-weight", 800)
+    .attr("dominant-baseline", "alphabetic");
 
   // Chart groups
   const axisG = svg.append("g").attr("transform", `translate(0,${margin.top})`);
@@ -224,17 +225,22 @@ export async function createBarChartRace({
 
     const tickEnter = tick.enter().append("g").attr("class", "tick");
     tickEnter.append("line").attr("stroke", "#eee");
+
+    // ✅ Axis labels ABOVE the top gridline (more negative y + baseline)
     tickEnter.append("text")
       .attr("fill", "#777")
       .attr("font-size", 11)
       .attr("text-anchor", "middle")
-      .attr("y", -6);
+      .attr("y", -12)
+      .attr("dominant-baseline", "alphabetic");
 
     const tickMerge = tickEnter.merge(tick);
+
     tickMerge.attr("transform", t => `translate(${x(t)},0)`);
     tickMerge.select("line")
       .attr("y1", 0)
       .attr("y2", height - margin.top - margin.bottom);
+
     tickMerge.select("text")
       .text(t => d3.format(",")(t));
   }
@@ -332,9 +338,7 @@ export async function createBarChartRace({
       const frame = frames[frameIndex];
       const [date] = frame;
 
-      // Date always in header band now
       ticker.text(fmtDate(date));
-
       updateAxis(frame);
 
       const transition = svg.transition().duration(state.duration).ease(d3.easeLinear);
