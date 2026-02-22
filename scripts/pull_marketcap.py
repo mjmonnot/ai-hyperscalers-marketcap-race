@@ -1,28 +1,32 @@
 #!/usr/bin/env python3
 """
-AI Hyperscalers Market Cap Pull
+Market Cap (Approx) Pipeline
+----------------------------
 
-Goal:
-- Produce a tidy monthly (end-of-month) market cap dataset for the D3 bar chart race.
+Purpose
+- Create a tidy monthly market cap dataset suitable for a D3 bar chart race.
 
-Strategy:
-1) Prefer "true" historical market cap from Financial Modeling Prep (FMP) when available.
-2) If FMP returns 402 (paywalled) for a ticker, compute an approximation:
-   - market cap ≈ (monthly EOM close price from Stooq) × (shares outstanding from SEC XBRL companyfacts)
-3) If SEC shares cannot be obtained for a ticker, SKIP that ticker (do not fail the pipeline).
+Method (stable + fully automated)
+- Pull long historical DAILY close prices from Stooq.
+- Resample to MONTHLY end-of-month (EOM) closes.
+- Pull CURRENT shares outstanding from Financial Modeling Prep (FMP) profile endpoint.
+- Approximate market cap:
+    market_cap ≈ monthly_close * current_shares_outstanding
 
-Output:
+Why this approach?
+- Works on free-ish data sources.
+- Avoids paid historical market cap endpoints.
+- Avoids SEC XBRL complexity.
+- Produces consistent date coverage across tickers.
+
+Output
 - data/processed/marketcap_monthly.csv
   Columns: date,name,value,category
-  value is in $B (billions USD)
+  where value is market cap in $B (billions USD).
 
-Requirements:
-- pandas
-- requests
-- pandas-datareader
-
-Notes:
-- SEC requires a descriptive User-Agent header. Set SEC_USER_AGENT env var or edit default below.
+Notes
+- This is an approximation because shares outstanding changes over time.
+- For visualization and relative comparisons, it’s typically “good enough”.
 """
 
 import os
@@ -30,8 +34,8 @@ import json
 import time
 from pathlib import Path
 
-import requests
 import pandas as pd
+import requests
 from pandas_datareader import data as pdr
 
 
@@ -42,64 +46,19 @@ OUT_PATH = ROOT / "data" / "processed" / "marketcap_monthly.csv"
 FMP_BASE = "https://financialmodelingprep.com"
 
 
-# --- SEC requires a descriptive User-Agent. ---
-DEFAULT_SEC_UA = "ai-hyperscalers-marketcap-race (contact: your-email@example.com)"
-SEC_HEADERS = {
-    "User-Agent": os.getenv("SEC_USER_AGENT", DEFAULT_SEC_UA),
-    "Accept-Encoding": "gzip, deflate",
-}
-
-
 def to_monthly_eom(df: pd.DataFrame, date_col: str) -> pd.DataFrame:
-    """Resample a time series to monthly end-of-month, using last available observation each month."""
+    """Resample a daily time series to monthly end-of-month using last observation each month."""
     df = df.copy()
     df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
-    df = df.dropna(subset=[date_col]).sort_values(date_col)
-    df = df.set_index(date_col)
+    df = df.dropna(subset=[date_col]).sort_values(date_col).set_index(date_col)
     return df.resample("ME").last().dropna().reset_index()
 
 
-# -------------------------
-# FMP: True historical market cap (when available)
-# -------------------------
-def fetch_fmp_historical_marketcap(symbol: str, api_key: str) -> pd.DataFrame:
+def fetch_stooq_daily_close(symbol: str) -> pd.DataFrame:
     """
-    Try to fetch daily historical market cap from FMP.
-    If paywalled for the symbol, FMP returns 402.
-    """
-    url = f"{FMP_BASE}/stable/historical-market-capitalization"
-    r = requests.get(url, params={"symbol": symbol, "apikey": api_key}, timeout=60)
-    if r.status_code == 402:
-        raise PermissionError("FMP 402 Payment Required")
-    r.raise_for_status()
+    Fetch daily close prices from Stooq via pandas-datareader.
 
-    js = r.json()
-    if not isinstance(js, list) or not js:
-        raise RuntimeError(f"Unexpected FMP response for {symbol}: {str(js)[:200]}")
-
-    df = pd.DataFrame(js)
-    if "date" not in df.columns or "marketCap" not in df.columns:
-        raise RuntimeError(f"FMP response missing fields for {symbol}: cols={list(df.columns)}")
-
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["marketCap"] = pd.to_numeric(df["marketCap"], errors="coerce")
-    df = df.dropna(subset=["date", "marketCap"]).sort_values("date")
-
-    # Convert to monthly EOM and $B
-    m = to_monthly_eom(df[["date", "marketCap"]], "date")
-    m["value"] = m["marketCap"] / 1e9
-    return m[["date", "value"]]
-
-
-# -------------------------
-# Stooq: Price history
-# -------------------------
-def fetch_stooq_prices(symbol: str) -> pd.DataFrame:
-    """
-    Fetch daily close from Stooq via pandas-datareader.
-
-    Stooq US symbols commonly use: <ticker>.us in lowercase.
-    Example: msft.us, amzn.us
+    Stooq uses lowercase tickers with suffix .us for US stocks, e.g. msft.us
     """
     stooq_symbol = f"{symbol.lower()}.us"
     df = pdr.DataReader(stooq_symbol, "stooq")  # Open/High/Low/Close/Volume
@@ -110,106 +69,32 @@ def fetch_stooq_prices(symbol: str) -> pd.DataFrame:
     return df[["date", "close"]]
 
 
-# -------------------------
-# SEC: Ticker -> CIK mapping
-# -------------------------
-def get_cik_for_ticker(ticker: str) -> str:
+def fetch_fmp_current_shares_outstanding(symbol: str, api_key: str) -> float:
     """
-    Map ticker -> CIK using SEC's company_tickers.json.
+    Fetch CURRENT shares outstanding from FMP profile endpoint.
 
-    This file is a dict keyed by integers-as-strings, e.g.:
-      {"0": {"cik_str": 320193, "ticker": "AAPL", "title": "APPLE INC"}, ...}
-
-    Returns a zero-padded 10-digit CIK string.
+    NOTE: Some symbols may be blocked depending on plan/limits.
+    We handle errors upstream by skipping those tickers.
     """
-    url = "https://www.sec.gov/files/company_tickers.json"
-    r = requests.get(url, headers=SEC_HEADERS, timeout=60)
+    url = f"{FMP_BASE}/api/v3/profile/{symbol}"
+    r = requests.get(url, params={"apikey": api_key}, timeout=60)
     r.raise_for_status()
     js = r.json()
 
-    t = ticker.upper()
+    if not isinstance(js, list) or not js:
+        raise RuntimeError(f"Empty profile response for {symbol}")
 
-    # js is dict-of-dicts
-    for _, row in js.items():
-        if str(row.get("ticker", "")).upper() == t:
-            cik_int = int(row["cik_str"])
-            return f"{cik_int:010d}"
+    shares = js[0].get("sharesOutstanding", None)
+    if shares is None:
+        raise RuntimeError(f"sharesOutstanding missing for {symbol}")
 
-    raise RuntimeError(f"Could not find CIK for ticker {ticker} via SEC mapping")
-
-# -------------------------
-# SEC: Shares outstanding series
-# -------------------------
-def fetch_sec_shares_timeseries(cik10: str) -> pd.DataFrame:
-    """
-    Fetch shares outstanding time series from SEC companyfacts.
-
-    We try multiple tags/taxonomies because filers vary:
-      - facts.dei.EntityCommonStockSharesOutstanding
-      - facts.dei.CommonStockSharesOutstanding
-      - facts.us-gaap.CommonStockSharesOutstanding
-      - facts.us-gaap.EntityCommonStockSharesOutstanding
-    """
-    url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik10}.json"
-    r = requests.get(url, headers=SEC_HEADERS, timeout=60)
-    r.raise_for_status()
-    js = r.json()
-
-    candidates = [
-        ("dei", "EntityCommonStockSharesOutstanding"),
-        ("dei", "CommonStockSharesOutstanding"),
-        ("us-gaap", "CommonStockSharesOutstanding"),
-        ("us-gaap", "EntityCommonStockSharesOutstanding"),
-    ]
-
-    series = None
-    for taxonomy, tag in candidates:
-        node = js.get("facts", {}).get(taxonomy, {}).get(tag)
-        if node and "units" in node:
-            units = node["units"]
-            if "shares" in units and units["shares"]:
-                series = units["shares"]
-                break
-
-    if series is None:
-        return pd.DataFrame(columns=["date", "shares"])
-
-    df = pd.DataFrame(series).rename(columns={"end": "date", "val": "shares"})
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["shares"] = pd.to_numeric(df["shares"], errors="coerce")
-    df = df.dropna(subset=["date", "shares"]).sort_values("date")
-
-    # Keep last observation per date
-    df = df.groupby("date", as_index=False)["shares"].last()
-    return df
-
-
-def compute_marketcap_from_stooq_and_sec(symbol: str) -> pd.DataFrame:
-    """
-    Approximate market cap using:
-      monthly EOM close price × (shares outstanding from SEC, forward-filled)
-    """
-    prices = fetch_stooq_prices(symbol)
-    prices_m = to_monthly_eom(prices, "date")  # date, close
-
-    cik10 = get_cik_for_ticker(symbol)
-    shares_ts = fetch_sec_shares_timeseries(cik10)
-    if shares_ts.empty:
-        return pd.DataFrame(columns=["date", "value"])
-
-    # Merge shares onto monthly dates and fill forward/back
-    merged = prices_m.merge(shares_ts, on="date", how="left").sort_values("date")
-    merged["shares"] = merged["shares"].ffill().bfill()
-
-    if merged["shares"].isna().any():
-        return pd.DataFrame(columns=["date", "value"])
-
-    merged["value"] = (merged["close"] * merged["shares"]) / 1e9  # $B
-    return merged[["date", "value"]]
+    return float(shares)
 
 
 def main() -> None:
     api_key = os.getenv("FMP_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("FMP_API_KEY is not set. Add it as a GitHub Actions secret and/or env var.")
 
     with CONFIG_PATH.open("r", encoding="utf-8") as f:
         cfg = json.load(f)
@@ -226,40 +111,31 @@ def main() -> None:
         name = t.get("name", symbol)
         category = t.get("category", "Unknown")
 
-        # 1) Try FMP true market cap
-        used = None
-        df = None
+        try:
+            # 1) Long history prices
+            prices_daily = fetch_stooq_daily_close(symbol)
 
-        if api_key:
-            try:
-                df = fetch_fmp_historical_marketcap(symbol, api_key)
-                used = "FMP-historical-marketcap"
-            except PermissionError:
-                df = None
-            except Exception as e:
-                # Any other FMP error -> fallback instead of hard fail
-                print(f"{symbol}: FMP error ({type(e).__name__}): {e}")
-                df = None
+            # 2) Monthly EOM closes
+            prices_m = to_monthly_eom(prices_daily, "date")  # date, close
 
-        # 2) Fallback if needed
-        if df is None or df.empty:
-            df = compute_marketcap_from_stooq_and_sec(symbol)
-            used = "Stooq close × SEC shares (approx)"
+            # 3) Current shares outstanding
+            shares = fetch_fmp_current_shares_outstanding(symbol, api_key)
 
-        # 3) If still empty, skip ticker
-        if df is None or df.empty:
-            print(f"{symbol}: SKIP (no usable market cap series)")
+            # 4) Approx market cap in $B
+            prices_m["value"] = (prices_m["close"] * shares) / 1e9
+            prices_m["name"] = name
+            prices_m["category"] = category
+            prices_m["date"] = prices_m["date"].dt.strftime("%Y-%m-%d")
+
+            rows.append(prices_m[["date", "name", "value", "category"]])
+
+            print(f"{symbol}: OK (Stooq close × FMP current shares) rows={len(prices_m)}")
+
+        except Exception as e:
+            print(f"{symbol}: SKIP ({type(e).__name__}): {e}")
             skipped.append(symbol)
-            continue
 
-        df = df.copy()
-        df["name"] = name
-        df["category"] = category
-        df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
-
-        rows.append(df[["date", "name", "value", "category"]])
-        print(f"{symbol}: OK ({used}) rows={len(df)}")
-
+        # Be polite
         time.sleep(0.25)
 
     if not rows:
