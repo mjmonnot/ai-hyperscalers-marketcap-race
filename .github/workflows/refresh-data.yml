@@ -1,9 +1,11 @@
 name: Refresh market cap data
 
-on:
+"on":
+  push:
+    branches: ["main"]
   workflow_dispatch:
   schedule:
-    - cron: "17 6 * * *"
+    - cron: "17 6 * * *" # daily 06:17 UTC
 
 permissions:
   contents: write
