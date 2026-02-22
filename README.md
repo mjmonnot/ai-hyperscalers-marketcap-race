@@ -1,137 +1,239 @@
-# AI Hyperscalers — Market Cap Bar Chart Race (D3)
+# AI Hyperscalers + AI Infrastructure  
+## Market Capitalization Bar Chart Race (D3.js)
 
-## ▶ View the Live Chart
-
+▶ **Live Visualization:**  
 https://mjmonnot.github.io/ai-hyperscalers-marketcap-race/
 
 ---
 
 ## Overview
 
-This repository renders a D3 bar chart visualization comparing market capitalization over time for major AI hyperscalers and AI infrastructure firms.
+This project renders an animated **D3.js bar chart race** comparing the market capitalization of major AI hyperscalers and AI infrastructure firms over time.
 
-The visualization is powered by:
+The visualization updates automatically via a GitHub Actions data pipeline and is designed to be:
 
-- `index.html` (entry point)
-- `src/barChartRace.js` (D3 visualization logic)
-- `data/processed/marketcap_monthly.csv` (generated dataset)
-- GitHub Actions workflow for automated refresh
+- Fully reproducible
+- Automated
+- Lightweight (no backend required)
+- Suitable for portfolio or research demonstration
 
+---
+
+## What the Animation Shows
+
+The bar chart race:
+
+- Animates **monthly market capitalization**
+- Displays the **top 10 companies** by market cap at each frame
+- Updates dynamically through time
+- Uses smooth interpolation between months for visual continuity
+
+### Date Coverage
+
+The animation currently displays the **most recent 8 years** of monthly data (or full available history if shorter), ending at the most recent month-end in the dataset.
+
+To change this window:
+
+Edit `windowYears` in `index.html`.
+
+---
+
+## Data Methodology
+
+Historical market capitalization is approximated using:
+
+```
+market_cap(t) ≈ monthly_close_price(t) × derived_shares_outstanding
+```
+
+Where:
+
+- Monthly close prices are sourced from **Stooq**.
+- Current market capitalization and price snapshot are sourced from **Financial Modeling Prep (FMP)**.
+- Shares outstanding are derived as:
+
+```
+shares ≈ marketCap_now / price_now
+```
+
+This assumes constant shares over the time window.
+
+### Why This Approach?
+
+- Avoids paid historical market cap endpoints
+- Avoids fragile SEC XBRL parsing
+- Produces consistent coverage across companies
+- Fully automated via GitHub Actions
+- Suitable for visualization and relative comparison
+
+**Note:** This is an approximation and should not be used for financial analysis.
+
+---
+
+## Companies Included
+
+The default universe includes:
+
+- Microsoft
+- Amazon
+- Alphabet (Google)
+- Meta
+- Oracle
+- IBM
+- NVIDIA
+- TSMC
+- Broadcom
+- AMD
+
+Company list is configurable in:
+
+```
+config/tickers.json
+```
+
+---
 
 ## Repository Structure
 
+```
 .
-├── index.html  
-├── src/  
-│   └── barChartRace.js  
-├── scripts/  
-│   └── pull_marketcap.py  
-├── config/  
-│   └── tickers.json  
-├── data/  
-│   └── processed/  
-│       └── marketcap_monthly.csv  
-└── .github/workflows/  
-    └── refresh-data.yml  
+├── index.html                         # Main D3 entry point
+├── src/
+│   └── barChartRace.js                # Animated race logic
+├── scripts/
+│   └── pull_marketcap.py              # Data pipeline
+├── config/
+│   └── tickers.json                   # Company universe
+├── data/
+│   └── processed/
+│       └── marketcap_monthly.csv      # Generated dataset
+└── .github/workflows/
+    └── refresh-data.yml               # Scheduled refresh
+```
 
 ---
 
-## Data Pipeline (Automatic Refresh)
+## Automated Data Pipeline
 
 The GitHub Actions workflow:
 
-- Pulls historical market cap data (or computes approximation if necessary)
-- Resamples to monthly end-of-month
-- Writes:
-  data/processed/marketcap_monthly.csv
-- Commits updates automatically
+1. Pulls daily historical prices from Stooq
+2. Resamples to monthly end-of-month
+3. Pulls current market cap snapshot from FMP
+4. Derives constant shares outstanding
+5. Writes:
+   ```
+   data/processed/marketcap_monthly.csv
+   ```
+6. Commits updated data automatically
+
+You can manually trigger it via:
+
+```
+Actions → Refresh market cap data → Run workflow
+```
 
 ---
 
-## Required Repository Secrets
+## Required GitHub Secrets
 
-Go to:
+Add in:
 
-Settings → Secrets and variables → Actions → New repository secret
+Settings → Secrets and variables → Actions
 
-Add:
+Required:
 
-Name: FMP_API_KEY  
-Value: your_api_key_here  
+```
+FMP_API_KEY
+```
 
-Optional (recommended):
+Optional (if rate limiting occurs):
 
-Name: SEC_USER_AGENT  
-Value: Your Name (your@email.com) ai-hyperscalers-marketcap-race  
-
----
-
-## Manually Trigger the First Data Pull
-
-1. Click **Actions**
-2. Select **Refresh market cap data**
-3. Click **Run workflow**
-4. Choose branch `main`
-
-After it runs successfully, the CSV file will appear in:
-
-data/processed/
+```
+SEC_USER_AGENT
+```
 
 ---
 
-## Run Locally (Optional)
+## Running Locally
 
 Install dependencies:
 
+```
 pip install -r requirements.txt
+```
 
 Set environment variables:
 
 Mac/Linux:
+```
 export FMP_API_KEY="your_key"
-export SEC_USER_AGENT="Your Name (your@email.com)"
+```
 
 Windows PowerShell:
+```
 setx FMP_API_KEY "your_key"
-setx SEC_USER_AGENT "Your Name (your@email.com)"
+```
 
-Pull data:
+Run:
 
+```
 python scripts/pull_marketcap.py
-
-Run local server:
-
 python -m http.server 8000
+```
 
-Open:
+Then open:
 
+```
 http://localhost:8000
+```
 
 ---
 
-## Customizing the Company Universe
+## Enable GitHub Pages (If Forking)
 
-Edit:
+1. Go to **Settings**
+2. Click **Pages**
+3. Source: Deploy from branch
+4. Branch: `main`
+5. Folder: `/ (root)`
+6. Save
 
-config/tickers.json
+Your site will be live at:
 
-Then rerun the workflow or local script.
-
----
-
-## Methodological Note
-
-When provider historical market capitalization is available, it is used directly.
-
-When unavailable, market capitalization is approximated using:
-
-Monthly closing price × SEC-reported shares outstanding (forward-filled).
-
-This ensures the pipeline remains fully automated and reproducible.
+```
+https://<username>.github.io/<repo-name>/
+```
 
 ---
 
-## Credits
+## Design Notes
 
-Visualization pattern inspired by the D3 / Observable Bar Chart Race:
+- Built using **D3 v7**
+- Uses interpolation between monthly frames for smooth transitions
+- Optimized for GitHub Pages deployment
+- No build system required
+- No backend required
+
+---
+
+## Future Enhancements (Planned)
+
+- Play / Pause controls
+- Speed adjustment slider
+- Category filtering (Hyperscaler vs AI Infra)
+- Tooltip with rank and detailed values
+- Window length selector (3y / 5y / 10y / Full)
+
+---
+
+## Inspiration
+
+Visualization style inspired by the D3 / Observable Bar Chart Race pattern:
 https://observablehq.com/@d3/bar-chart-race
+
+---
+
+## License
+
+MIT License
