@@ -42,7 +42,7 @@ export async function renderBarChartRace({
     ([date, values]) => [new Date(date), values]
   ).sort((a, b) => d3.ascending(a[0], b[0]));
 
-  // Optionally limit to last N years (makes race visibly active quickly)
+  // Optionally limit to last N years
   if (windowYears && windowYears > 0) {
     const last = dateValues[dateValues.length - 1][0];
     const cutoff = new Date(Date.UTC(last.getUTCFullYear() - windowYears, last.getUTCMonth(), 1));
@@ -134,7 +134,7 @@ export async function renderBarChartRace({
     x.domain([0, ranked[0]?.value ?? 1]).nice();
 
     const ticks = x.ticks(width / 160);
-    const tick = axisG.selectAll("g.tick").data(ticks, d => d);
+    const tick = axisG.selectAll("g.tick").data(ticks, t => t);
 
     tick.exit().remove();
 
@@ -147,9 +147,15 @@ export async function renderBarChartRace({
       .attr("y", -6);
 
     const tickMerge = tickEnter.merge(tick);
-    tickMerge.attr("transform", d => `translate(${x(d)},0)`);
-    tickMerge.select("line").attr("y1", 0).attr("y2", height - margin.top - margin.bottom);
-    tickMerge.select("text").text(d3.format(",")(d));
+
+    tickMerge.attr("transform", t => `translate(${x(t)},0)`);
+    tickMerge.select("line")
+      .attr("y1", 0)
+      .attr("y2", height - margin.top - margin.bottom);
+
+    // ✅ FIX: use bound datum "t", not undefined "d"
+    tickMerge.select("text")
+      .text(t => d3.format(",")(t));
   }
 
   function updateBars([, ranked], transition) {
