@@ -26,9 +26,8 @@
     .row { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
     .group { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     .group label { font-size: 12px; color: var(--muted); }
-    select, input[type="range"], button {
-      font: inherit;
-    }
+
+    select, input[type="range"], button { font: inherit; }
     select {
       padding: 6px 10px;
       border-radius: 10px;
@@ -160,7 +159,7 @@
 
   <script type="module">
     // Cache buster: bump whenever you change JS or CSV
-    const V = "v2026-02-21-ALL-1";
+    const V = "v2026-02-21-UI-1";
 
     const status = document.querySelector("#status");
     const errorBox = document.querySelector("#error");
@@ -177,7 +176,7 @@
 
     try {
       status.textContent = "Loading module…";
-      const mod = await import(`./src/barChartRace.js?${V}`);
+      const mod = await import(`./src/barChartRaceUI.js?${V}`);
 
       status.textContent = "Loading data…";
       const controller = await mod.createBarChartRace({
@@ -191,12 +190,10 @@
         onStatus: (s) => { status.textContent = s; }
       });
 
-      // Build category checkboxes + legend from controller metadata
-      const meta = controller.getMeta(); // { categories: [{name,color}], ... }
+      // Categories + Legend
+      const meta = controller.getMeta();
       catsWrap.innerHTML = "";
       legendWrap.innerHTML = "";
-
-      const enabled = new Set(meta.categories.map(c => c.name));
 
       for (const c of meta.categories) {
         // checkbox
@@ -206,14 +203,16 @@
         cb.type = "checkbox";
         cb.checked = true;
         cb.dataset.cat = c.name;
+
         cb.addEventListener("change", () => {
           const checked = Array.from(catsWrap.querySelectorAll("input[type=checkbox]"))
             .filter(x => x.checked)
             .map(x => x.dataset.cat);
 
           controller.setCategories(checked);
-          controller.restart(); // apply filter immediately
+          controller.restart();
         });
+
         const sw = document.createElement("span");
         sw.className = "swatch";
         sw.style.background = c.color;
@@ -237,7 +236,7 @@
         legendWrap.appendChild(li);
       }
 
-      // Wire controls
+      // Controls
       let playing = false;
 
       const updatePlayButton = () => {
@@ -253,7 +252,6 @@
 
       btnRestart.addEventListener("click", () => {
         controller.restart();
-        // keep play state as-is
         if (playing) controller.play();
       });
 
@@ -274,7 +272,7 @@
         if (playing) controller.play();
       });
 
-      // Start in paused state
+      // Start paused
       playing = false;
       updatePlayButton();
       status.textContent = "Ready (press Play).";
