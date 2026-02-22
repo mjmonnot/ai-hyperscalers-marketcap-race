@@ -2,11 +2,7 @@
 
 ## ▶ View the Live Chart
 
-After enabling GitHub Pages, your chart will be available at:
-
 https://mjmonnot.github.io/ai-hyperscalers-marketcap-race/
-
-If this link returns 404, follow the setup instructions below.
 
 ---
 
@@ -21,30 +17,6 @@ The visualization is powered by:
 - `data/processed/marketcap_monthly.csv` (generated dataset)
 - GitHub Actions workflow for automated refresh
 
----
-
-## Enable GitHub Pages (Required for Live Link)
-
-1. Go to your GitHub repository.
-2. Click **Settings**.
-3. Click **Pages** in the left sidebar.
-4. Under **Build and deployment**:
-   - Source: **Deploy from a branch**
-   - Branch: **main**
-   - Folder: **/ (root)**
-5. Click **Save**.
-
-Wait 30–60 seconds.
-
-Your chart will then be live at:
-
-https://<your-username>.github.io/<repo-name>/
-
-For this repo:
-
-https://mjmonnot.github.io/ai-hyperscalers-marketcap-race/
-
----
 
 ## Repository Structure
 
