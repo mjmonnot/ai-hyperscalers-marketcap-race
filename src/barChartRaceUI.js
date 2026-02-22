@@ -53,7 +53,10 @@ export async function createBarChartRace({
   // ---- Layout ----
   const width = 1000;
   const barSize = 42;
-  const margin = { top: 26, right: 46, bottom: 18, left: 20 };
+
+  // Dedicated header band so date never overlaps plot area
+  const headerHeight = 34; // space above plot
+  const margin = { top: headerHeight + 14, right: 46, bottom: 18, left: 20 };
   let height = margin.top + barSize * state.n + margin.bottom;
 
   el.innerHTML = "";
@@ -63,25 +66,40 @@ export async function createBarChartRace({
     .style("width", "100%")
     .style("height", "auto");
 
-  const axisG = svg.append("g").attr("transform", `translate(0,${margin.top})`);
-  const barsG = svg.append("g");
-  const labelsG = svg.append("g").attr("font-size", 12).attr("font-weight", 500);
+  // Header group (separate from chart area)
+  const headerG = svg.append("g")
+    .attr("transform", `translate(0,0)`);
 
-  const ticker = svg.append("text")
-    .attr("x", width - margin.right)
-    .attr("y", margin.top + 6)
-    .attr("text-anchor", "end")
-    .attr("font-size", 28)
-    .attr("font-weight", 700)
-    .attr("dy", "0.35em");
+  // A subtle divider line between header and chart
+  headerG.append("line")
+    .attr("x1", margin.left)
+    .attr("x2", width - margin.right)
+    .attr("y1", headerHeight)
+    .attr("y2", headerHeight)
+    .attr("stroke", "#eaeaea");
 
-  svg.append("text")
+  // Metric label in header (right aligned, small)
+  headerG.append("text")
     .attr("x", width - margin.right)
-    .attr("y", margin.top - 10)
+    .attr("y", 14)
     .attr("text-anchor", "end")
     .attr("font-size", 12)
     .attr("fill", "#555")
     .text(metricLabel);
+
+  // Large date in header band (right aligned), positioned so it never collides with axis/bars
+  const ticker = headerG.append("text")
+    .attr("x", width - margin.right)
+    .attr("y", headerHeight - 8)
+    .attr("text-anchor", "end")
+    .attr("font-size", 26)     // slightly smaller than before
+    .attr("font-weight", 750)
+    .attr("dy", "0.35em");
+
+  // Chart groups
+  const axisG = svg.append("g").attr("transform", `translate(0,${margin.top})`);
+  const barsG = svg.append("g");
+  const labelsG = svg.append("g").attr("font-size", 12).attr("font-weight", 500);
 
   const x = d3.scaleLinear([0, 1], [margin.left, width - margin.right]);
   const y = d3.scaleBand()
@@ -260,18 +278,17 @@ export async function createBarChartRace({
 
   function updateLabels([, ranked], transition) {
     const top = ranked.slice(0, state.n);
-    const { prev, next } = prevNext;
 
     const label = labelsG.selectAll("text.label").data(top, d => d.name);
 
     label.exit()
       .transition(transition)
-      .attr("transform", d => `translate(${x((next.get(d) || d).value)},${y((next.get(d) || d).rank)})`)
+      .attr("transform", d => `translate(${x((prevNext.next.get(d) || d).value)},${y((prevNext.next.get(d) || d).rank)})`)
       .remove();
 
     const enter = label.enter().append("text")
       .attr("class", "label")
-      .attr("transform", d => `translate(${x((prev.get(d) || d).value)},${y((prev.get(d) || d).rank)})`)
+      .attr("transform", d => `translate(${x((prevNext.prev.get(d) || d).value)},${y((prevNext.prev.get(d) || d).rank)})`)
       .attr("y", y.bandwidth() / 2)
       .attr("x", 6)
       .attr("dy", "0.35em");
@@ -315,7 +332,9 @@ export async function createBarChartRace({
       const frame = frames[frameIndex];
       const [date] = frame;
 
+      // Date always in header band now
       ticker.text(fmtDate(date));
+
       updateAxis(frame);
 
       const transition = svg.transition().duration(state.duration).ease(d3.easeLinear);
