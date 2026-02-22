@@ -10,7 +10,8 @@
     h1 { font-size: 18px; margin: 0 0 8px; }
     .sub { color: #555; font-size: 13px; margin-bottom: 12px; line-height: 1.4; }
     code { background: #f6f6f6; padding: 2px 6px; border-radius: 6px; }
-    #status { font-size: 12px; color: #666; margin: 6px 0 12px; }
+    #status { font-size: 12px; color: #666; margin: 6px 0 10px; }
+    #error { white-space: pre-wrap; color: #b00020; font-size: 12px; margin: 8px 0 0; }
     svg { width: 100%; height: auto; }
   </style>
 </head>
@@ -19,36 +20,45 @@
     <h1>AI Hyperscalers + AI Infra — Market Cap ($B)</h1>
     <div class="sub">
       Data source: <code>data/processed/marketcap_monthly.csv</code> (auto-updated).<br/>
-      If the animation looks stuck, hard refresh (Ctrl+F5) or change the cache-buster below.
+      If animation looks stuck, hard refresh (Ctrl+F5) or bump the cache-buster.
     </div>
     <div id="status">Loading…</div>
     <div id="chart"></div>
+    <div id="error"></div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 
   <script type="module">
-    // Cache-buster: change this value any time you update JS or the CSV
-    const V = "v2026-02-21-1";
-
+    const V = "v2026-02-21-2"; // bump this whenever you change JS or CSV
     const status = document.querySelector("#status");
-    status.textContent = "Starting animation…";
+    const err = document.querySelector("#error");
 
-    // Import with cache busting so Pages doesn’t serve stale JS
-    const mod = await import(`./src/barChartRace.js?${V}`);
+    try {
+      status.textContent = "Starting animation…";
+      const mod = await import(`./src/barChartRace.js?${V}`);
 
-    // Also cache-bust the CSV fetch
-    await mod.renderBarChartRace({
-      el: document.querySelector("#chart"),
-      dataUrl: `./data/processed/marketcap_monthly.csv?${V}`,
-      n: 10,
-      duration: 220,
-      k: 6,
-      metricLabel: "Market Cap ($B)"
-    });
+      // IMPORTANT: do NOT await the whole race; let it run and keep updating status
+      mod.renderBarChartRace({
+        el: document.querySelector("#chart"),
+        dataUrl: `./data/processed/marketcap_monthly.csv?${V}`,
+        n: 10,
+        duration: 90,          // faster
+        k: 2,                  // less interpolation
+        windowYears: 8,        // last N years only (makes it visibly move quickly)
+        metricLabel: "Market Cap ($B)",
+        onFrame: (d) => { status.textContent = `Running… ${d}`; }
+      }).then(() => {
+        status.textContent = "Done (refresh to replay).";
+      }).catch(e => {
+        err.textContent = String(e?.stack || e);
+        status.textContent = "Error (see below).";
+      });
 
-    // If the race runs to completion, we’ll update status
-    status.textContent = "Animation complete (refresh to replay).";
+    } catch (e) {
+      err.textContent = String(e?.stack || e);
+      status.textContent = "Error (see below).";
+    }
   </script>
 </body>
 </html>
