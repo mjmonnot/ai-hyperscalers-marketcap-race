@@ -15,9 +15,8 @@ FMP_BASE = "https://financialmodelingprep.com"
 # ---- IMPORTANT: SEC requires a descriptive User-Agent ----
 # Put something that identifies you + a contact (email is ideal).
 SEC_HEADERS = {
-    "User-Agent": "mjmonnot ai-hyperscalers-marketcap-race (contact: mjmonnot@gmail.com)",
+    "User-Agent": "mjmonnot ai-hyperscalers-marketcap-race (contact: your-email@example.com)",
     "Accept-Encoding": "gzip, deflate",
-    "Host": "data.sec.gov",
 }
 
 def fetch_fmp_historical_marketcap(symbol: str, api_key: str) -> pd.DataFrame:
