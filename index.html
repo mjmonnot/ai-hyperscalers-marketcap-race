@@ -1,20 +1,54 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-<meta charset="utf-8" />
-<title>AI Hyperscalers Market Cap Race</title>
-<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AI Hyperscalers — Market Cap Bar Chart Race</title>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    #wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+    h1 { font-size: 18px; margin: 0 0 8px; }
+    .sub { color: #555; font-size: 13px; margin-bottom: 12px; line-height: 1.4; }
+    code { background: #f6f6f6; padding: 2px 6px; border-radius: 6px; }
+    #status { font-size: 12px; color: #666; margin: 6px 0 12px; }
+    svg { width: 100%; height: auto; }
+  </style>
 </head>
 <body>
-<h2>AI Hyperscalers — Market Cap (Monthly, $B)</h2>
-<div id="chart"></div>
-<script type="module">
-import { renderBarChartRace } from "./src/barChartRace.js";
-renderBarChartRace({
-  el: document.querySelector("#chart"),
-  dataUrl: "./data/processed/marketcap_monthly.csv",
-  metricLabel: "Market Cap ($B)"
-});
-</script>
+  <div id="wrap">
+    <h1>AI Hyperscalers + AI Infra — Market Cap ($B)</h1>
+    <div class="sub">
+      Data source: <code>data/processed/marketcap_monthly.csv</code> (auto-updated).<br/>
+      If the animation looks stuck, hard refresh (Ctrl+F5) or change the cache-buster below.
+    </div>
+    <div id="status">Loading…</div>
+    <div id="chart"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+
+  <script type="module">
+    // Cache-buster: change this value any time you update JS or the CSV
+    const V = "v2026-02-21-1";
+
+    const status = document.querySelector("#status");
+    status.textContent = "Starting animation…";
+
+    // Import with cache busting so Pages doesn’t serve stale JS
+    const mod = await import(`./src/barChartRace.js?${V}`);
+
+    // Also cache-bust the CSV fetch
+    await mod.renderBarChartRace({
+      el: document.querySelector("#chart"),
+      dataUrl: `./data/processed/marketcap_monthly.csv?${V}`,
+      n: 10,
+      duration: 220,
+      k: 6,
+      metricLabel: "Market Cap ($B)"
+    });
+
+    // If the race runs to completion, we’ll update status
+    status.textContent = "Animation complete (refresh to replay).";
+  </script>
 </body>
 </html>
