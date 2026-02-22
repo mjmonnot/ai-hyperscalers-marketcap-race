@@ -5,58 +5,282 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>AI Hyperscalers — Market Cap Bar Chart Race</title>
   <style>
-    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-    #wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
-    h1 { font-size: 18px; margin: 0 0 8px; }
-    .sub { color: #555; font-size: 13px; margin-bottom: 12px; line-height: 1.4; }
-    code { background: #f6f6f6; padding: 2px 6px; border-radius: 6px; }
-    #status { font-size: 12px; color: #666; margin: 6px 0 10px; }
-    #error { white-space: pre-wrap; color: #b00020; font-size: 12px; margin: 8px 0 0; }
-    svg { width: 100%; height: auto; }
+    :root { --fg:#111; --muted:#666; --bg:#fff; --panel:#f6f6f6; --border:#e5e5e5; }
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: var(--fg); background: var(--bg); }
+    #wrap { max-width: 1120px; margin: 22px auto; padding: 0 16px; }
+    h1 { font-size: 18px; margin: 0 0 6px; }
+    .sub { color: var(--muted); font-size: 13px; line-height: 1.4; margin-bottom: 10px; }
+    code { background: #f2f2f2; padding: 2px 6px; border-radius: 6px; }
+
+    .panel {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px;
+      margin: 10px 0 12px;
+    }
+
+    .row { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
+    .group { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .group label { font-size: 12px; color: var(--muted); }
+    select, input[type="range"], button {
+      font: inherit;
+    }
+    select {
+      padding: 6px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #fff;
+      font-size: 13px;
+    }
+    button {
+      padding: 8px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #fff;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    button.primary {
+      background: #111;
+      color: #fff;
+      border-color: #111;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    input[type="range"] { width: 180px; }
+
+    #status { font-size: 12px; color: var(--muted); }
+    #error { white-space: pre-wrap; color: #b00020; font-size: 12px; margin-top: 8px; }
+
+    #chartWrap { position: relative; }
+    #chart svg { width: 100%; height: auto; }
+
+    /* Tooltip */
+    #tooltip {
+      position: absolute;
+      pointer-events: none;
+      background: rgba(17,17,17,0.92);
+      color: #fff;
+      padding: 8px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      line-height: 1.25;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+      opacity: 0;
+      transform: translate(-50%, -110%);
+      transition: opacity 80ms linear;
+      max-width: 260px;
+    }
+    #tooltip .t { font-weight: 650; margin-bottom: 2px; }
+    #tooltip .m { color: rgba(255,255,255,0.82); }
+    #tooltip .k { color: rgba(255,255,255,0.72); }
+
+    /* Legend */
+    #legend { display: flex; gap: 10px 14px; flex-wrap: wrap; }
+    .legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+    .swatch { width: 10px; height: 10px; border-radius: 999px; display: inline-block; border: 1px solid rgba(0,0,0,0.06); }
+
+    /* Category checkboxes */
+    #cats { display: flex; gap: 10px 14px; flex-wrap: wrap; }
+    .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); user-select: none; }
+    .chk input { transform: translateY(0.5px); }
   </style>
 </head>
 <body>
   <div id="wrap">
-    <h1>AI Hyperscalers + AI Infra — Market Cap ($B)</h1>
+    <h1>AI Hyperscalers + AI Infra — Market Cap Bar Chart Race ($B)</h1>
     <div class="sub">
       Data source: <code>data/processed/marketcap_monthly.csv</code> (auto-updated).<br/>
-      If animation looks stuck, hard refresh (Ctrl+F5) or bump the cache-buster.
+      Market cap is approximated from monthly closes × derived constant shares. Visualization only.
     </div>
-    <div id="status">Loading…</div>
-    <div id="chart"></div>
-    <div id="error"></div>
+
+    <div class="panel">
+      <div class="row">
+        <div class="group">
+          <button id="playPause" class="primary">Play</button>
+          <button id="restart">Restart</button>
+        </div>
+
+        <div class="group">
+          <label for="speed">Speed</label>
+          <input id="speed" type="range" min="50" max="600" step="10" value="120" />
+          <span id="speedVal" style="font-size:12px;color:var(--muted)">120 ms/frame</span>
+        </div>
+
+        <div class="group">
+          <label for="window">Window</label>
+          <select id="window">
+            <option value="3">Last 3 years</option>
+            <option value="5">Last 5 years</option>
+            <option value="8" selected>Last 8 years</option>
+            <option value="15">Last 15 years</option>
+            <option value="0">Full history</option>
+          </select>
+        </div>
+
+        <div class="group">
+          <label for="topN">Top N</label>
+          <select id="topN">
+            <option value="5">Top 5</option>
+            <option value="10" selected>Top 10</option>
+            <option value="15">Top 15</option>
+            <option value="20">Top 20</option>
+          </select>
+        </div>
+
+        <div id="status">Loading…</div>
+      </div>
+
+      <div class="row" style="align-items:flex-start">
+        <div style="min-width: 280px;">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Categories</div>
+          <div id="cats"></div>
+        </div>
+
+        <div style="flex:1;">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Legend</div>
+          <div id="legend"></div>
+        </div>
+      </div>
+
+      <div id="error"></div>
+    </div>
+
+    <div id="chartWrap">
+      <div id="chart"></div>
+      <div id="tooltip"></div>
+    </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 
   <script type="module">
-    const V = "v2026-02-21-2"; // bump this whenever you change JS or CSV
+    // Cache buster: bump whenever you change JS or CSV
+    const V = "v2026-02-21-ALL-1";
+
     const status = document.querySelector("#status");
-    const err = document.querySelector("#error");
+    const errorBox = document.querySelector("#error");
+
+    const btnPlayPause = document.querySelector("#playPause");
+    const btnRestart = document.querySelector("#restart");
+    const speed = document.querySelector("#speed");
+    const speedVal = document.querySelector("#speedVal");
+    const windowSel = document.querySelector("#window");
+    const topNSel = document.querySelector("#topN");
+    const catsWrap = document.querySelector("#cats");
+    const legendWrap = document.querySelector("#legend");
+    const tooltip = document.querySelector("#tooltip");
 
     try {
-      status.textContent = "Starting animation…";
+      status.textContent = "Loading module…";
       const mod = await import(`./src/barChartRace.js?${V}`);
 
-      // IMPORTANT: do NOT await the whole race; let it run and keep updating status
-      mod.renderBarChartRace({
+      status.textContent = "Loading data…";
+      const controller = await mod.createBarChartRace({
         el: document.querySelector("#chart"),
+        tooltipEl: tooltip,
         dataUrl: `./data/processed/marketcap_monthly.csv?${V}`,
-        n: 10,
-        duration: 90,          // faster
-        k: 2,                  // less interpolation
-        windowYears: 8,        // last N years only (makes it visibly move quickly)
+        n: +topNSel.value,
+        duration: +speed.value,
+        windowYears: +windowSel.value,
         metricLabel: "Market Cap ($B)",
-        onFrame: (d) => { status.textContent = `Running… ${d}`; }
-      }).then(() => {
-        status.textContent = "Done (refresh to replay).";
-      }).catch(e => {
-        err.textContent = String(e?.stack || e);
-        status.textContent = "Error (see below).";
+        onStatus: (s) => { status.textContent = s; }
       });
 
+      // Build category checkboxes + legend from controller metadata
+      const meta = controller.getMeta(); // { categories: [{name,color}], ... }
+      catsWrap.innerHTML = "";
+      legendWrap.innerHTML = "";
+
+      const enabled = new Set(meta.categories.map(c => c.name));
+
+      for (const c of meta.categories) {
+        // checkbox
+        const lab = document.createElement("label");
+        lab.className = "chk";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = true;
+        cb.dataset.cat = c.name;
+        cb.addEventListener("change", () => {
+          const checked = Array.from(catsWrap.querySelectorAll("input[type=checkbox]"))
+            .filter(x => x.checked)
+            .map(x => x.dataset.cat);
+
+          controller.setCategories(checked);
+          controller.restart(); // apply filter immediately
+        });
+        const sw = document.createElement("span");
+        sw.className = "swatch";
+        sw.style.background = c.color;
+
+        const txt = document.createElement("span");
+        txt.textContent = c.name;
+
+        lab.appendChild(cb);
+        lab.appendChild(sw);
+        lab.appendChild(txt);
+        catsWrap.appendChild(lab);
+
+        // legend item
+        const li = document.createElement("div");
+        li.className = "legend-item";
+        const sw2 = document.createElement("span");
+        sw2.className = "swatch";
+        sw2.style.background = c.color;
+        li.appendChild(sw2);
+        li.appendChild(document.createTextNode(c.name));
+        legendWrap.appendChild(li);
+      }
+
+      // Wire controls
+      let playing = false;
+
+      const updatePlayButton = () => {
+        btnPlayPause.textContent = playing ? "Pause" : "Play";
+      };
+
+      btnPlayPause.addEventListener("click", () => {
+        playing = !playing;
+        updatePlayButton();
+        if (playing) controller.play();
+        else controller.pause();
+      });
+
+      btnRestart.addEventListener("click", () => {
+        controller.restart();
+        // keep play state as-is
+        if (playing) controller.play();
+      });
+
+      speed.addEventListener("input", () => {
+        speedVal.textContent = `${speed.value} ms/frame`;
+        controller.setSpeed(+speed.value);
+      });
+
+      windowSel.addEventListener("change", () => {
+        controller.setWindowYears(+windowSel.value);
+        controller.restart();
+        if (playing) controller.play();
+      });
+
+      topNSel.addEventListener("change", () => {
+        controller.setTopN(+topNSel.value);
+        controller.restart();
+        if (playing) controller.play();
+      });
+
+      // Start in paused state
+      playing = false;
+      updatePlayButton();
+      status.textContent = "Ready (press Play).";
+
     } catch (e) {
-      err.textContent = String(e?.stack || e);
+      errorBox.textContent = String(e?.stack || e);
       status.textContent = "Error (see below).";
     }
   </script>
