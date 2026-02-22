@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
 """
-Market Cap (Approx) Pipeline — Stable + Fully Automated
+Market Cap (Approx) Pipeline — robust + consistent
 
 Method:
 - Pull long historical DAILY close prices from Stooq.
 - Resample to MONTHLY end-of-month (EOM) closes.
-- Pull CURRENT shares outstanding from Financial Modeling Prep (FMP) *stable* profile endpoint.
-- Approximate market cap:
-    market_cap ≈ monthly_close * current_shares_outstanding
-
-Why "stable" endpoint?
-- FMP documents stable endpoints under:
-  https://financialmodelingprep.com/stable/...
-  including profile:
-  https://financialmodelingprep.com/stable/profile?symbol=AAPL  (apikey param required)
+- Pull CURRENT price + CURRENT marketCap from Financial Modeling Prep (FMP) stable profile endpoint.
+- Derive constant shares:
+    shares ≈ marketCap_now / price_now
+- Approximate market cap history:
+    marketCap(t) ≈ shares * close(t)
 
 Output:
 - data/processed/marketcap_monthly.csv
   Columns: date,name,value,category
   value is market cap in $B (billions USD).
+
+Caveat:
+- This assumes constant shares outstanding derived from a single snapshot.
+  It’s an approximation, but stable and reproducible for visualization.
 """
 
 import os
@@ -61,17 +61,14 @@ def fetch_stooq_daily_close(symbol: str) -> pd.DataFrame:
     return df[["date", "close"]]
 
 
-def fetch_fmp_current_shares_outstanding(symbol: str, api_key: str) -> float:
+def fetch_fmp_price_and_marketcap(symbol: str, api_key: str) -> tuple[float, float]:
     """
-    Fetch CURRENT shares outstanding from FMP *stable* profile endpoint.
+    Fetch CURRENT price and CURRENT marketCap from FMP stable profile endpoint.
 
-    Docs indicate:
-      https://financialmodelingprep.com/stable/profile?symbol=AAPL
-    (apikey passed as query param)
+    Returns: (price_now, marketcap_now)
     """
     url = f"{FMP_STABLE_BASE}/profile"
     headers = {
-        # Some services behave better with a UA; harmless if ignored
         "User-Agent": "ai-hyperscalers-marketcap-race (github actions)",
         "Accept": "application/json",
     }
@@ -82,16 +79,22 @@ def fetch_fmp_current_shares_outstanding(symbol: str, api_key: str) -> float:
     if not isinstance(js, list) or not js:
         raise RuntimeError(f"Empty profile response for {symbol}: {str(js)[:200]}")
 
-    # Field naming can vary; try a few common keys
-    shares = (
-        js[0].get("sharesOutstanding")
-        or js[0].get("shareOutstanding")
-        or js[0].get("shares_outstanding")
-    )
-    if shares is None:
-        raise RuntimeError(f"sharesOutstanding missing for {symbol}: keys={list(js[0].keys())[:25]}")
+    obj = js[0]
+    price = obj.get("price")
+    mcap = obj.get("marketCap")
 
-    return float(shares)
+    if price is None or mcap is None:
+        raise RuntimeError(
+            f"Missing price/marketCap for {symbol}. keys={list(obj.keys())[:25]}"
+        )
+
+    price = float(price)
+    mcap = float(mcap)
+
+    if price <= 0 or mcap <= 0:
+        raise RuntimeError(f"Non-positive price/marketCap for {symbol}: price={price}, marketCap={mcap}")
+
+    return price, mcap
 
 
 def main() -> None:
@@ -115,18 +118,26 @@ def main() -> None:
         category = t.get("category", "Unknown")
 
         try:
+            # 1) long price history (daily)
             prices_daily = fetch_stooq_daily_close(symbol)
+
+            # 2) monthly EOM closes
             prices_m = to_monthly_eom(prices_daily, "date")  # date, close
 
-            shares = fetch_fmp_current_shares_outstanding(symbol, api_key)
+            # 3) current price + market cap snapshot
+            price_now, mcap_now = fetch_fmp_price_and_marketcap(symbol, api_key)
 
-            prices_m["value"] = (prices_m["close"] * shares) / 1e9  # $B
+            # 4) derive constant shares
+            shares = mcap_now / price_now
+
+            # 5) compute approximate market cap history (in $B)
+            prices_m["value"] = (prices_m["close"] * shares) / 1e9
             prices_m["name"] = name
             prices_m["category"] = category
             prices_m["date"] = prices_m["date"].dt.strftime("%Y-%m-%d")
 
             rows.append(prices_m[["date", "name", "value", "category"]])
-            print(f"{symbol}: OK (Stooq close × FMP stable shares) rows={len(prices_m)}")
+            print(f"{symbol}: OK (Stooq close × derived shares) rows={len(prices_m)}")
 
         except Exception as e:
             print(f"{symbol}: SKIP ({type(e).__name__}): {e}")
