@@ -236,4 +236,4 @@ https://observablehq.com/@d3/bar-chart-race
 
 ## License
 
-MIT License
+MIT License — https://opensource.org/license/mit/
