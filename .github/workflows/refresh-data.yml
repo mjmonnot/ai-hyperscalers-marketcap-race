@@ -1,11 +1,9 @@
 name: Refresh market cap data
 
 "on":
-  push:
-    branches: ["main"]
   workflow_dispatch:
   schedule:
-    - cron: "17 6 * * *" # daily 06:17 UTC
+    - cron: "17 6 * * *"
 
 permissions:
   contents: write
@@ -13,6 +11,10 @@ permissions:
 jobs:
   refresh:
     runs-on: ubuntu-latest
+
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,10 +39,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
           git add data/processed/marketcap_monthly.csv
+
           if git diff --cached --quiet; then
             echo "No changes to commit."
             exit 0
           fi
+
           git commit -m "Auto-update market cap data"
           git push
