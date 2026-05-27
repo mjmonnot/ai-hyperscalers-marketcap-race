@@ -1,27 +1,26 @@
 #!/usr/bin/env python3
 """
-VERSION: direct-stooq-csv-v2
+VERSION: fmp-only-price-eod-v1
 
 Creates:
 data/processed/marketcap_monthly.csv
 
 Method:
-- Pull price history directly from Stooq CSV endpoint.
-- Pull current price + marketCap from FMP stable profile.
-- Derive shares = marketCap / price.
+- Pull historical end-of-day prices from FMP stable historical-price-eod/light.
+- Pull current price + current marketCap from FMP stable profile.
+- Derive shares = marketCap_now / price_now.
 - Approximate historical market cap = monthly close * derived shares.
 """
 
 import os
 import json
 import time
-from io import StringIO
 from pathlib import Path
 
 import pandas as pd
 import requests
 
-print("RUNNING pull_marketcap.py VERSION: direct-stooq-csv-v2")
+print("RUNNING pull_marketcap.py VERSION: fmp-only-price-eod-v1")
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "config" / "tickers.json"
@@ -37,55 +36,49 @@ def to_monthly_eom(df: pd.DataFrame, date_col: str) -> pd.DataFrame:
     return df.resample("ME").last().dropna().reset_index()
 
 
-def fetch_stooq_daily_close(symbol: str) -> pd.DataFrame:
-    stooq_symbol = f"{symbol.lower()}.us"
-    url = "https://stooq.com/q/d/l/"
-    params = {"s": stooq_symbol, "i": "d"}
+def fetch_fmp_historical_close(symbol: str, api_key: str) -> pd.DataFrame:
+    url = f"{FMP_STABLE_BASE}/historical-price-eod/light"
 
     headers = {
         "User-Agent": "Mozilla/5.0 ai-hyperscalers-marketcap-race",
-        "Accept": "text/csv,*/*",
+        "Accept": "application/json",
     }
 
-    r = requests.get(url, params=params, headers=headers, timeout=60)
+    r = requests.get(
+        url,
+        params={"symbol": symbol, "apikey": api_key},
+        headers=headers,
+        timeout=60,
+    )
     r.raise_for_status()
 
-    text = r.text.strip()
+    js = r.json()
 
-    if not text:
-        raise RuntimeError(f"Stooq empty response for {symbol}")
+    if not isinstance(js, list) or not js:
+        raise RuntimeError(f"Empty FMP historical price response for {symbol}: {str(js)[:300]}")
 
-    if "<html" in text.lower():
-        raise RuntimeError(f"Stooq returned HTML for {symbol}: {text[:300]}")
+    df = pd.DataFrame(js)
 
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if "date" not in df.columns:
+        raise RuntimeError(f"FMP historical response missing date for {symbol}: cols={list(df.columns)}")
 
-    # Keep only valid CSV-looking lines.
-    # Expected header: Date,Open,High,Low,Close,Volume
-    clean_lines = []
-    for line in lines:
-        if line.startswith("Date,") or line[:4].isdigit():
-            clean_lines.append(line)
+    # FMP light endpoint may return price, close, or adjClose depending on endpoint/plan.
+    price_col = None
+    for candidate in ["price", "close", "adjClose", "adj_close"]:
+        if candidate in df.columns:
+            price_col = candidate
+            break
 
-    if not clean_lines:
-        raise RuntimeError(f"No usable CSV lines from Stooq for {symbol}: {text[:300]}")
+    if price_col is None:
+        raise RuntimeError(f"FMP historical response missing price/close for {symbol}: cols={list(df.columns)}")
 
-    csv_text = "\n".join(clean_lines)
-
-    df = pd.read_csv(StringIO(csv_text), engine="python", on_bad_lines="skip")
-
-    if "Date" not in df.columns or "Close" not in df.columns:
-        raise RuntimeError(
-            f"Unexpected Stooq columns for {symbol}: {list(df.columns)}; sample={csv_text[:300]}"
-        )
-
-    df = df.rename(columns={"Date": "date", "Close": "close"})
+    df = df.rename(columns={price_col: "close"})
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["close"] = pd.to_numeric(df["close"], errors="coerce")
     df = df.dropna(subset=["date", "close"])
 
     if df.empty:
-        raise RuntimeError(f"No valid Stooq rows for {symbol}")
+        raise RuntimeError(f"No valid FMP historical rows for {symbol}")
 
     return df[["date", "close"]]
 
@@ -144,7 +137,7 @@ def main() -> None:
         category = item.get("category", "Unknown")
 
         try:
-            prices_daily = fetch_stooq_daily_close(symbol)
+            prices_daily = fetch_fmp_historical_close(symbol, api_key)
             prices_m = to_monthly_eom(prices_daily, "date")
 
             price_now, market_cap_now = fetch_fmp_price_and_marketcap(symbol, api_key)
